@@ -1,4 +1,5 @@
 from enum import Enum
+from functools import cached_property
 from random import choice
 from typing import Union
 
@@ -26,12 +27,20 @@ class Board:
     def __init__(self):
         self._board = np.array([[BoardElement.Empty] * 7] * 6, dtype=BoardElement)
 
-    def insert(self, idx: int, p: BoardElement):
+    @cached_property
+    def win_detection_kernels(self):
+        horizontal_kernel = np.array([[1] * 4])
+        vertical_kernel = np.transpose(horizontal_kernel)
+        diag1_kernel = np.eye(4, dtype=np.uint8)
+        diag2_kernel = np.fliplr(diag1_kernel)
+        return [horizontal_kernel, vertical_kernel, diag1_kernel, diag2_kernel]
+
+    def insert(self, column_idx: int, player: BoardElement):
         for row_idx, row in enumerate(self._board):
-                if row[idx] is BoardElement.Empty:
-                    self._board[row_idx][idx] = p
+                if row[column_idx] is BoardElement.Empty:
+                    self._board[row_idx][column_idx] = player
                     return
-        raise BoardColumnBusyError(f"Column by {idx + 1} is fully busy, can not put {p.value} there!")
+        raise BoardColumnBusyError(f"Column by {column_idx + 1} is fully busy, can not put {player} there!")
 
     def is_full(self) -> bool:
         return self._board.all()
@@ -47,30 +56,21 @@ class Board:
 
 
 def pick_first() -> BoardElement:
-    first = choice([BoardElement.Red, BoardElement.Yellow])
-    return BoardElement(first)
+    return choice([BoardElement.Red, BoardElement.Yellow])
 
 
 def change_player(p: BoardElement) -> BoardElement:
     return BoardElement.Yellow if p is BoardElement.Red else BoardElement.Red
 
 
-def get_detection_kernels():
-    horizontal_kernel = np.array([[1] * 4])
-    vertical_kernel = np.transpose(horizontal_kernel)
-    diag1_kernel = np.eye(4, dtype=np.uint8)
-    diag2_kernel = np.fliplr(diag1_kernel)
-    return [horizontal_kernel, vertical_kernel, diag1_kernel, diag2_kernel]
-
-
 def check_winning_move(b: Board, player: BoardElement) -> bool:
-    detection_kernels = get_detection_kernels()
-    return any(
-        np.any(convolve2d(b.board == player, kernel) == 4)
-        for kernel in detection_kernels
-    )
+    for kernel in b.win_detection_kernels:
+        if np.any(convolve2d(b.board == player, kernel) == 4):
+            return True
+    return False
 
-def get_field_num() -> int:
+
+def get_column_idx_from_user() -> int:
     num = 0
     while not num:
         resp = input("Pick a spot: ")
@@ -85,26 +85,28 @@ def get_field_num() -> int:
     return num - 1
 
 
-def turn(p: BoardElement, board: Board) -> tuple[bool, Union[BoardElement, None]]:
-    print(f"{p.value}'s turn")
+def turn(player: BoardElement, board: Board) -> tuple[bool, Union[BoardElement, None]]:
+    print(f"{player}'s turn")
     print("Current board is: ")
     board.print()
     while True:
         try:
-            field_num = get_field_num()
-            board.insert(field_num, p)
+            field_num = get_column_idx_from_user()
+            board.insert(field_num, player)
         except BoardColumnBusyError as e:
             print(e)
         else:
+            for _ in range(50):
+                print()
             break
-    someone_won = check_winning_move(board, p)
+    someone_won = check_winning_move(board, player)
     if someone_won:
-        print(f"Winner is: {p.value}")
+        print(f"Winner is: {player}")
         board.print()
-        return True, p
+        return True, player
     else:
         if not board.is_full():
-            return False, change_player(p)
+            return False, change_player(player)
         print("It's a tie")
         board.print()
         return True, None
